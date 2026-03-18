@@ -34,32 +34,48 @@ const initializeStock = () => {
 function App() {
   // Load cart from localStorage
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedCart = localStorage.getItem('sevlo-cart');
-      return savedCart ? JSON.parse(savedCart) : [];
+    try {
+      if (typeof window !== 'undefined') {
+        const savedCart = localStorage.getItem('sevlo-cart');
+        return savedCart ? JSON.parse(savedCart) : [];
+      }
+    } catch (e) {
+      console.error('Error loading cart from localStorage:', e);
     }
     return [];
   });
 
   // Load stock from localStorage or initialize from products
   const [stock, setStock] = useState<Record<number, number>>(() => {
-    if (typeof window !== 'undefined') {
-      const savedStock = localStorage.getItem('sevlo-stock');
-      if (savedStock) {
-        return JSON.parse(savedStock);
+    try {
+      if (typeof window !== 'undefined') {
+        const savedStock = localStorage.getItem('sevlo-stock');
+        if (savedStock) {
+          return JSON.parse(savedStock);
+        }
       }
+    } catch (e) {
+      console.error('Error loading stock from localStorage:', e);
     }
     return initializeStock();
   });
 
   // Save cart to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem('sevlo-cart', JSON.stringify(cartItems));
+    try {
+      localStorage.setItem('sevlo-cart', JSON.stringify(cartItems));
+    } catch (e) {
+      console.error('Error saving cart to localStorage:', e);
+    }
   }, [cartItems]);
 
   // Save stock to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem('sevlo-stock', JSON.stringify(stock));
+    try {
+      localStorage.setItem('sevlo-stock', JSON.stringify(stock));
+    } catch (e) {
+      console.error('Error saving stock to localStorage:', e);
+    }
   }, [stock]);
 
   const handleAddToCart = useCallback((product: Product) => {
@@ -166,18 +182,18 @@ function App() {
     const phoneNumber = '525551725689';
     
     // Build message
-    let message = 'Hola, quiero hacer un pedido a SEVLO:';
+    let message = 'Hola, quiero hacer un pedido a SEVLO:\n';
     let total = 0;
     
     cartItems.forEach(item => {
       const subtotal = item.price * item.quantity;
       total += subtotal;
-      message += `%0A- ${item.name} x${item.quantity} - $${subtotal.toFixed(2)} MXN`;
+      message += `• ${item.name} x${item.quantity} - $${subtotal.toFixed(2)} MXN\n`;
     });
     
-    message += `%0ATotal: $${total.toFixed(2)} MXN`;
+    message += `\nTotal: $${total.toFixed(2)} MXN`;
 
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`;
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   }, [cartItems]);
 
