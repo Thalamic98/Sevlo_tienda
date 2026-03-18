@@ -6,7 +6,6 @@ import {
   collection, 
   doc, 
   getDocs, 
-  setDoc, 
   onSnapshot, 
   updateDoc, 
   writeBatch,
@@ -80,20 +79,24 @@ function App() {
           await batch.commit();
         }
 
-        // Real-time listener
         const unsubscribe = onSnapshot(productsCol, (snap) => {
           const newStock: Record<number, number> = {};
+          if (snap.empty) {
+            console.log('No products found in Firestore yet.');
+          }
           snap.forEach((doc) => {
             newStock[Number(doc.id)] = doc.data().stock;
           });
           setStock(newStock);
+          setLoading(false);
+        }, (error) => {
+          console.error('Snapshot Error:', error);
           setLoading(false);
         });
 
         return unsubscribe;
       } catch (err) {
         console.error('Firestore Error:', err);
-        // Fallback to local config if firestore fails
         const fallbackStock: Record<number, number> = {};
         productsConfig.products.forEach(p => fallbackStock[p.id] = p.stock);
         setStock(fallbackStock);
@@ -103,7 +106,7 @@ function App() {
 
     const unsubscribePromise = syncDb();
     return () => {
-      unsubscribePromise.then(unsub => unsub?.());
+      unsubscribePromise.then(unsub => unsub?.()).catch(console.error);
     };
   }, []);
 
