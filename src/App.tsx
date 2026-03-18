@@ -1,6 +1,17 @@
 import { useState, useCallback, useEffect } from 'react';
 import { siteConfig, productsConfig } from './config';
 import type { Product } from './config';
+import { db } from './lib/firebase';
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  setDoc, 
+  onSnapshot, 
+  updateDoc, 
+  writeBatch,
+  increment
+} from 'firebase/firestore';
 import Navigation from './sections/Navigation';
 import Hero from './sections/Hero';
 import SubHero from './sections/SubHero';
@@ -45,20 +56,56 @@ function App() {
     return [];
   });
 
-  // Load stock from localStorage or initialize from products
-  const [stock, setStock] = useState<Record<number, number>>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const savedStock = localStorage.getItem('sevlo-stock');
-        if (savedStock) {
-          return JSON.parse(savedStock);
+  const [stock, setStock] = useState<Record<number, number>>({});
+  const [loading, setLoading] = useState(true);
+
+  // Sync Products to Firestore (Initial Seed) and Listen for Updates
+  useEffect(() => {
+    const syncDb = async () => {
+      try {
+        const productsCol = collection(db, 'products');
+        const snapshot = await getDocs(productsCol);
+
+        if (snapshot.empty) {
+          // Seed the database
+          console.log('Seeding database with initial stock...');
+          const batch = writeBatch(db);
+          productsConfig.products.forEach((p) => {
+            const docRef = doc(db, 'products', p.id.toString());
+            batch.set(docRef, { 
+              name: p.name, 
+              stock: p.stock 
+            });
+          });
+          await batch.commit();
         }
+
+        // Real-time listener
+        const unsubscribe = onSnapshot(productsCol, (snap) => {
+          const newStock: Record<number, number> = {};
+          snap.forEach((doc) => {
+            newStock[Number(doc.id)] = doc.data().stock;
+          });
+          setStock(newStock);
+          setLoading(false);
+        });
+
+        return unsubscribe;
+      } catch (err) {
+        console.error('Firestore Error:', err);
+        // Fallback to local config if firestore fails
+        const fallbackStock: Record<number, number> = {};
+        productsConfig.products.forEach(p => fallbackStock[p.id] = p.stock);
+        setStock(fallbackStock);
+        setLoading(false);
       }
-    } catch (e) {
-      console.error('Error loading stock from localStorage:', e);
-    }
-    return initializeStock();
-  });
+    };
+
+    const unsubscribePromise = syncDb();
+    return () => {
+      unsubscribePromise.then(unsub => unsub?.());
+    };
+  }, []);
 
   // Save cart to localStorage whenever it changes
   useEffect(() => {
@@ -69,20 +116,9 @@ function App() {
     }
   }, [cartItems]);
 
-  // Save stock to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem('sevlo-stock', JSON.stringify(stock));
-    } catch (e) {
-      console.error('Error saving stock to localStorage:', e);
-    }
-  }, [stock]);
-
   const handleAddToCart = useCallback((product: Product) => {
-    // Check if stock is available
-    if (stock[product.id] <= 0) {
-      return; // Can't add if no stock
-    }
+    // Check if local UI stock is available
+    if (stock[product.id] <= 0) return;
 
     setCartItems((prevItems) => {
       const existingItem = prevItems.find((item) => item.id === product.id);
@@ -93,33 +129,30 @@ function App() {
             : item
         );
       }
-      return [
-        ...prevItems,
-        {
-          id: product.id,
-          name: product.name,
-          price: product.price,
-          quantity: 1,
-          image: product.image,
-        },
-      ];
+      return [...prevItems, { 
+        id: product.id, 
+        name: product.name, 
+        price: product.price, 
+        quantity: 1, 
+        image: product.image 
+      }];
     });
 
-    // Decrease stock
-    setStock((prevStock) => ({
-      ...prevStock,
-      [product.id]: prevStock[product.id] - 1,
-    }));
+    // Update Firestore
+    const docRef = doc(db, 'products', product.id.toString());
+    updateDoc(docRef, {
+      stock: increment(-1)
+    }).catch(err => console.error('Error updating stock:', err));
   }, [stock]);
 
   const handleRemoveFromCart = useCallback((id: number) => {
     const item = cartItems.find(item => item.id === id);
     if (item) {
-      // Return stock
-      setStock((prevStock) => ({
-        ...prevStock,
-        [id]: prevStock[id] + item.quantity,
-      }));
+      // Return stock to Firestore
+      const docRef = doc(db, 'products', id.toString());
+      updateDoc(docRef, {
+        stock: increment(item.quantity)
+      }).catch(err => console.error('Error returning stock:', err));
     }
     setCartItems((prevItems) => prevItems.filter((item) => item.id !== id));
   }, [cartItems]);
@@ -133,18 +166,18 @@ function App() {
 
     if (quantity === 0) {
       // Return all stock and remove item
-      setStock((prevStock) => ({
-        ...prevStock,
-        [id]: prevStock[id] + currentQuantity,
-      }));
+      const docRef = doc(db, 'products', id.toString());
+      updateDoc(docRef, {
+        stock: increment(currentQuantity)
+      });
       setCartItems((prevItems) => prevItems.filter((item) => item.id !== id));
     } else if (quantityDiff > 0) {
-      // Increasing quantity - check stock
+      // Increasing quantity - check if stock can handle it
       if (stock[id] >= quantityDiff) {
-        setStock((prevStock) => ({
-          ...prevStock,
-          [id]: prevStock[id] - quantityDiff,
-        }));
+        const docRef = doc(db, 'products', id.toString());
+        updateDoc(docRef, {
+          stock: increment(-quantityDiff)
+        });
         setCartItems((prevItems) =>
           prevItems.map((item) =>
             item.id === id ? { ...item, quantity } : item
@@ -153,10 +186,10 @@ function App() {
       }
     } else if (quantityDiff < 0) {
       // Decreasing quantity - return stock
-      setStock((prevStock) => ({
-        ...prevStock,
-        [id]: prevStock[id] - quantityDiff, // quantityDiff is negative, so this adds
-      }));
+      const docRef = doc(db, 'products', id.toString());
+      updateDoc(docRef, {
+        stock: increment(-quantityDiff) // quantityDiff is negative
+      });
       setCartItems((prevItems) =>
         prevItems.map((item) =>
           item.id === id ? { ...item, quantity } : item
@@ -166,13 +199,15 @@ function App() {
   }, [cartItems, stock]);
 
   const handleClearCart = useCallback(() => {
-    // Return all stock
+    // Return all stock to Firestore
+    const batch = writeBatch(db);
     cartItems.forEach(item => {
-      setStock((prevStock) => ({
-        ...prevStock,
-        [item.id]: prevStock[item.id] + item.quantity,
-      }));
+      const docRef = doc(db, 'products', item.id.toString());
+      batch.update(docRef, {
+        stock: increment(item.quantity)
+      });
     });
+    batch.commit().catch(err => console.error('Error clearing cart:', err));
     setCartItems([]);
   }, [cartItems]);
 
@@ -196,6 +231,17 @@ function App() {
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   }, [cartItems]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="w-12 h-12 border-4 border-[#8b6d4b] border-t-transparent rounded-full animate-spin mb-4" />
+          <p className="font-serif text-xl">Cargando Tienda...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white" lang={siteConfig.language || undefined}>
