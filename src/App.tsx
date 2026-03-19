@@ -62,23 +62,26 @@ function App() {
   useEffect(() => {
     const syncDb = async () => {
       try {
+        console.log('Connecting to Firestore products collection...');
         const productsCol = collection(db, 'products');
         
-        // Connect to Firestore real-time updates
         const unsubscribe = onSnapshot(productsCol, (snap) => {
+          console.log(`Firestore Update received! Count: ${snap.size}`);
           const newStock: Record<number, number> = {};
-          snap.forEach((doc) => {
-            newStock[Number(doc.id)] = doc.data().stock;
-          });
           
-          if (Object.keys(newStock).length > 0) {
-            setStock(newStock);
+          if (snap.empty) {
+            console.warn('The products collection is EMPTY in Firestore!');
+            // Only use fallback if absolutely necessary, but log it
+            productsConfig.products.forEach(p => newStock[p.id] = p.stock);
           } else {
-            // Initial fallback if database is empty (should not happen anymore)
-            const fallbackStock: Record<number, number> = {};
-            productsConfig.products.forEach(p => fallbackStock[p.id] = p.stock);
-            setStock(fallbackStock);
+            snap.forEach((doc) => {
+              const data = doc.data();
+              newStock[Number(doc.id)] = data.stock;
+              console.log(`Product ${doc.id}: ${data.stock} units`);
+            });
           }
+          
+          setStock(newStock);
           setLoading(false);
         }, (error) => {
           console.error('Firestore real-time error:', error);
@@ -88,9 +91,6 @@ function App() {
         return unsubscribe;
       } catch (err) {
         console.error('Firestore Connection Error:', err);
-        const fallbackStock: Record<number, number> = {};
-        productsConfig.products.forEach(p => fallbackStock[p.id] = p.stock);
-        setStock(fallbackStock);
         setLoading(false);
       }
     };
