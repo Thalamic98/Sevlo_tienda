@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAnalytics } from "firebase/analytics";
 
 // These are public Client SDK configurations. 
 // Security is enforced via Firestore Security Rules.
@@ -14,3 +15,4 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
+export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;

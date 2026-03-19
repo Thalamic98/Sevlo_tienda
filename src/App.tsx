@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { siteConfig, productsConfig } from './config';
 import type { Product } from './config';
-import { db } from './lib/firebase';
+import { db, analytics } from './lib/firebase';
+import { logEvent } from 'firebase/analytics';
 import { 
   collection, 
   doc, 
@@ -129,6 +130,16 @@ function App() {
     updateDoc(docRef, {
       stock: increment(-1)
     }).catch(err => console.error('Error updating stock:', err));
+
+    // LOG EVENT: Add to Cart
+    if (analytics) {
+      logEvent(analytics as any, 'add_to_cart', {
+        item_id: product.id,
+        item_name: product.name,
+        currency: 'MXN',
+        value: product.price
+      });
+    }
   }, [stock]);
 
   const handleRemoveFromCart = useCallback((id: number) => {
@@ -215,6 +226,16 @@ function App() {
     message += `\nTotal: $${total.toFixed(2)} MXN`;
 
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
+    
+    // LOG EVENT: Begin Checkout / Contact
+    if (analytics) {
+      logEvent(analytics as any, 'begin_checkout', {
+        currency: 'MXN',
+        value: total,
+        items: cartItems.map(item => ({ item_id: item.id, item_name: item.name }))
+      });
+    }
+    
     window.open(whatsappUrl, '_blank');
   }, [cartItems]);
 
