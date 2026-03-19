@@ -5,7 +5,6 @@ import { db } from './lib/firebase';
 import { 
   collection, 
   doc, 
-  getDocs, 
   onSnapshot, 
   updateDoc, 
   writeBatch,
@@ -32,14 +31,7 @@ interface CartItem {
   image: string;
 }
 
-// Initialize stock from products config
-const initializeStock = () => {
-  const stock: Record<number, number> = {};
-  productsConfig.products.forEach(product => {
-    stock[product.id] = product.stock;
-  });
-  return stock;
-};
+
 
 function App() {
   // Load cart from localStorage
@@ -201,7 +193,7 @@ function App() {
         stock: increment(item.quantity)
       });
     });
-    batch.commit().catch(err => console.error('Error clearing cart:', err));
+    batch.commit().catch((err: any) => console.error('Error clearing cart:', err));
     setCartItems([]);
   }, [cartItems]);
 
