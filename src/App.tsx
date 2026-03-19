@@ -51,6 +51,17 @@ function App() {
   const [stock, setStock] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
 
+  // Safe Analytics Logging Helper
+  const safeLogEvent = useCallback((name: string, params?: any) => {
+    if (analytics) {
+      try {
+        (logEvent as any)(analytics, name, params);
+      } catch (e) {
+        console.error('Analytics error:', e);
+      }
+    }
+  }, []);
+
   // Sync Products to Firestore (Initial Seed) and Listen for Updates
   useEffect(() => {
     const syncDb = async () => {
@@ -132,15 +143,13 @@ function App() {
     }).catch(err => console.error('Error updating stock:', err));
 
     // LOG EVENT: Add to Cart
-    if (analytics) {
-      logEvent(analytics as any, 'add_to_cart', {
-        item_id: product.id,
-        item_name: product.name,
-        currency: 'MXN',
-        value: product.price
-      });
-    }
-  }, [stock]);
+    safeLogEvent('add_to_cart', {
+      item_id: String(product.id),
+      item_name: product.name,
+      currency: 'MXN',
+      value: product.price
+    });
+  }, [stock, safeLogEvent]);
 
   const handleRemoveFromCart = useCallback((id: number) => {
     const item = cartItems.find(item => item.id === id);
@@ -228,16 +237,17 @@ function App() {
     const whatsappUrl = `https://api.whatsapp.com/send?phone=${phoneNumber}&text=${encodeURIComponent(message)}`;
     
     // LOG EVENT: Begin Checkout / Contact
-    if (analytics) {
-      logEvent(analytics as any, 'begin_checkout', {
-        currency: 'MXN',
-        value: total,
-        items: cartItems.map(item => ({ item_id: item.id, item_name: item.name }))
-      });
-    }
+    safeLogEvent('begin_checkout', {
+      currency: 'MXN',
+      value: total,
+      items: cartItems.map(item => ({ 
+        item_id: String(item.id), 
+        item_name: item.name 
+      }))
+    });
     
     window.open(whatsappUrl, '_blank');
-  }, [cartItems]);
+  }, [cartItems, safeLogEvent]);
 
   if (loading) {
     return (
