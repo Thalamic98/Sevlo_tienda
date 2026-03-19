@@ -63,40 +63,31 @@ function App() {
     const syncDb = async () => {
       try {
         const productsCol = collection(db, 'products');
-        const snapshot = await getDocs(productsCol);
-
-        if (snapshot.empty) {
-          // Seed the database
-          console.log('Seeding database with initial stock...');
-          const batch = writeBatch(db);
-          productsConfig.products.forEach((p) => {
-            const docRef = doc(db, 'products', p.id.toString());
-            batch.set(docRef, { 
-              name: p.name, 
-              stock: p.stock 
-            });
-          });
-          await batch.commit();
-        }
-
+        
+        // Connect to Firestore real-time updates
         const unsubscribe = onSnapshot(productsCol, (snap) => {
           const newStock: Record<number, number> = {};
-          if (snap.empty) {
-            console.log('No products found in Firestore yet.');
-          }
           snap.forEach((doc) => {
             newStock[Number(doc.id)] = doc.data().stock;
           });
-          setStock(newStock);
+          
+          if (Object.keys(newStock).length > 0) {
+            setStock(newStock);
+          } else {
+            // Initial fallback if database is empty (should not happen anymore)
+            const fallbackStock: Record<number, number> = {};
+            productsConfig.products.forEach(p => fallbackStock[p.id] = p.stock);
+            setStock(fallbackStock);
+          }
           setLoading(false);
         }, (error) => {
-          console.error('Snapshot Error:', error);
+          console.error('Firestore real-time error:', error);
           setLoading(false);
         });
 
         return unsubscribe;
       } catch (err) {
-        console.error('Firestore Error:', err);
+        console.error('Firestore Connection Error:', err);
         const fallbackStock: Record<number, number> = {};
         productsConfig.products.forEach(p => fallbackStock[p.id] = p.stock);
         setStock(fallbackStock);
@@ -235,23 +226,6 @@ function App() {
     window.open(whatsappUrl, '_blank');
   }, [cartItems]);
 
-  const handleManualSync = async () => {
-    try {
-      const productsCol = collection(db, 'products');
-      const batch = writeBatch(db);
-      productsConfig.products.forEach((p) => {
-        const docRef = doc(productsCol, p.id.toString());
-        batch.set(docRef, { name: p.name, stock: p.stock });
-      });
-      await batch.commit();
-      alert("¡Éxito! Base de datos sincronizada con Google Firebase.");
-      window.location.reload();
-    } catch (e: any) {
-      alert("Error de sincronización: " + e.message);
-      console.error(e);
-    }
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -285,29 +259,6 @@ function App() {
         <Contact />
       </main>
       <Footer />
-      
-      {/* Botón de Sincronización Manual (Solo Visible para Ti) */}
-      <div style={{ position: 'fixed', bottom: '20px', left: '20px', zIndex: 10000 }}>
-        <button 
-          onClick={handleManualSync}
-          style={{ 
-            background: '#2d5a27', 
-            color: 'white', 
-            padding: '12px 16px', 
-            borderRadius: '50px',
-            fontSize: '14px',
-            fontWeight: 'bold',
-            border: 'none',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          <span>🔄</span> Sincronizar Inventario Real
-        </button>
-      </div>
     </div>
   );
 }
